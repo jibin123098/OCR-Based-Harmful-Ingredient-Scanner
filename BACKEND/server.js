@@ -14,20 +14,30 @@ const upload = multer({ dest: 'uploads/' });
 app.get('/', (req, res) => {
     res.send("Backend server is running perfectly!");
 });
-
-// 4. The MAIN ENDPOINT: This is where the frontend sends the image
-app.post('/api/analyze', upload.single('image'), (req, res) => {
-    // If no image was sent, return an error
+// 4. The MAIN ENDPOINT: Updated to match Jibin's frontend exactly!
+app.post('/api/scan', upload.single('labelImage'), (req, res) => {
+    
     if (!req.file) {
         return res.status(400).json({ error: "No image file uploaded." });
     }
     
-    console.log("Success! Image received:", req.file);
+    console.log("Success! Image received:", req.file.originalname);
 
-    // 5. Send fake data back to the frontend (We will add Google Vision later)
+    // 5. Send fake data formatted exactly how Jibin's UI expects it
     res.json({ 
-        message: "Image successfully received by the backend!",
-        mockIngredients: ["Water", "Sugar", "Parabens", "Sulfates"]
+        allIngredients: ["Water", "Glycerin", "Parabens", "Fragrance", "Sulfates"],
+        flaggedIngredients: [
+            { 
+                name: "Parabens", 
+                risk: "High", 
+                description: "Synthetic preservative linked to hormonal disruption." 
+            },
+            { 
+                name: "Sulfates", 
+                risk: "Medium", 
+                description: "Harsh cleansing agent that can strip natural oils and irritate skin." 
+            }
+        ]
     });
 });
 
