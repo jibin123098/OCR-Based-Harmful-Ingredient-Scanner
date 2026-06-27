@@ -1,0 +1,16 @@
+# Secret Keys
+**/firebase-key.json
+**/vision-key.json
+
+# Uploads
+**/uploads/
+
+# Dependencies
+**/node_modules/
+
+# Logs
+*.log
+
+# Editor Settings
+.vscode/
+.DS_Store
