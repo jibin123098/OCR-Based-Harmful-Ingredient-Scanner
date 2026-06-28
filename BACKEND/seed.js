@@ -1,52 +1,61 @@
-// 1. Use the new modern Firebase imports
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
 const serviceAccount = require('./firebase-key.json');
+const ingredients = require('./data/ingredients.json');
 
-// 2. Initialize Firebase
-initializeApp({
-  credential: cert(serviceAccount)
-});
-
-// 3. Connect to Firestore
+initializeApp({ credential: cert(serviceAccount) });
 const db = getFirestore();
 
-// 4. Starter dataset of harmful ingredients
-const ingredientsToSeed = [
-  {
-    name: "Parabens",
-    risk_level: "High",
-    category: "Preservatives",
-    description: "Disrupts hormone function and mimics estrogen. Frequently linked to reproductive issues.",
-    aliases: ["methylparaben", "propylparaben", "butylparaben", "isobutylparaben"]
-  },
-  {
-    name: "Sodium Lauryl Sulfate",
-    risk_level: "Medium",
-    category: "Surfactants",
-    description: "Can cause severe skin and eye irritation, strip skin of natural oils, and trigger allergies.",
-    aliases: ["sls", "sodium laureth sulfate", "sles", "sodium dodecyl sulfate"]
-  },
-  {
-    name: "Phthalates",
-    risk_level: "High",
-    category: "Plasticizers/Fragrances",
-    description: "Endocrine disruptors linked to developmental and reproductive toxicity.",
-    aliases: ["dibutyl phthalate", "diethyl phthalate", "dbp", "dep", "fragrance", "parfum"]
-  }
-];
-
 async function seedDatabase() {
-  console.log("🔄 Seeding Firestore database...");
+  console.log(`🚀 Preparing to seed ${ingredients.length} ingredients...`);
   
-  for (const ingredient of ingredientsToSeed) {
-    const docId = ingredient.name.toLowerCase().replace(/\s+/g, '-');
-    await db.collection('harmful_ingredients').doc(docId).set(ingredient);
-    console.log(`✅ Added: ${ingredient.name}`);
+  const BATCH_LIMIT = 490; 
+  const batches = [];
+  
+  let currentBatch = db.batch();
+  let operationCount = 0;
+
+  ingredients.forEach((item) => {
+    if (!item.name) return;
+
+    // 1. THE SANITIZER: Strip bad characters
+    let docId = item.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    
+    // 2. THE TRUNCATOR: Stop Firestore from crashing on paragraph-length garbage data
+    if (docId.length > 150) {
+      docId = docId.substring(0, 150);
+    }
+    
+    if (!docId) return; // Skip if empty
+
+    const docRef = db.collection('harmful_ingredients').doc(docId);
+    currentBatch.set(docRef, item);
+    operationCount++;
+
+    if (operationCount === BATCH_LIMIT) {
+      batches.push(currentBatch);
+      currentBatch = db.batch();
+      operationCount = 0;
+    }
+  });
+
+  if (operationCount > 0) {
+    batches.push(currentBatch);
   }
-  
-  console.log("🎉 Seeding complete! You can close this script.");
-  process.exit();
+
+  console.log(`📦 Data divided into ${batches.length} batches to bypass Firebase limits.`);
+
+  try {
+    for (let i = 0; i < batches.length; i++) {
+      console.log(`⏳ Uploading batch ${i + 1} of ${batches.length}...`);
+      await batches[i].commit();
+    }
+    console.log("🎉 MASSIVE SUCCESS: All ingredients are safely in Firestore!");
+  } catch (error) {
+    console.error("❌ Seeding Error:", error);
+  } finally {
+    process.exit();
+  }
 }
 
-seedDatabase().catch(console.error);
+seedDatabase();
