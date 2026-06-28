@@ -115,6 +115,40 @@ app.post('/api/scan', upload.single('labelImage'), async (req, res) => {
   }
 });
 
+// ==========================================
+// 🛡️ USER CONTRIBUTION GATEWAY
+// Purpose: Collect user reports in a sandbox (pending_reports)
+// ADMIN: Review these before moving them to 'harmful_ingredients'.
+// ==========================================
+app.post('/api/report', async (req, res) => {
+  try {
+    const { name, risk_level, description, category } = req.body;
+
+    // 1. Check if the user filled out the required fields
+    if (!name || !risk_level || !description) {
+      return res.status(400).json({ error: "Missing required fields for reporting." });
+    }
+
+    console.log(`📝 Received new report for ingredient: ${name}`);
+
+    // 2. Save it to the new "pending_reports" collection
+    await db.collection('pending_reports').add({
+      name: name.toLowerCase(),
+      risk_level,
+      description,
+      category: category || "General",
+      submittedAt: new Date().toISOString(),
+      status: "pending"
+    });
+
+    res.status(200).json({ message: "Report submitted successfully for review!" });
+  } catch (error) {
+    console.error("❌ Submission Error:", error);
+    res.status(500).json({ error: "Failed to submit report." });
+  }
+});
+// ==========================================
+
 // 4. Start server
 const PORT = 5000;
 app.listen(PORT, () => {
