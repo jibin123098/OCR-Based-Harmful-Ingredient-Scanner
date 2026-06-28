@@ -14,6 +14,32 @@ initializeApp({
 const db = getFirestore();
 console.log("🔥 Firestore Database successfully connected!");
 
+// ==========================================
+// 🚀 IN-MEMORY CACHE ENGINE
+// ==========================================
+let cachedIngredients = [];
+
+async function loadDatabaseIntoMemory() {
+    console.log("⏳ Downloading Firebase dataset into fast RAM cache...");
+    try {
+        const snapshot = await db.collection('harmful_ingredients').get();
+        cachedIngredients = []; // Clear old cache
+        
+        snapshot.forEach(doc => {
+            cachedIngredients.push(doc.data());
+        });
+        
+        console.log(`✅ CACHE READY: ${cachedIngredients.length} ingredients loaded into memory!`);
+        console.log(`💡 Your app will now process scans instantly with ZERO extra database costs.`);
+    } catch (error) {
+        console.error("❌ Failed to load cache:", error);
+    }
+}
+
+// Trigger the download immediately when the server starts
+loadDatabaseIntoMemory();
+// ==========================================
+
 // 2. Set up the server & Google Client
 const app = express();
 app.use(cors());
@@ -25,78 +51,59 @@ const client = new vision.ImageAnnotatorClient({
 
 const upload = multer({ storage: multer.memoryStorage() });
 
-// 3. A simple test route
-app.get('/', (req, res) => {
-    res.send("Backend server is running perfectly!");
-});
-
-// 4. MAIN ENDPOINT
+// 3. MAIN ENDPOINT (Now using ultra-fast RAM Cache)
 app.post('/api/scan', upload.single('labelImage'), async (req, res) => {
   try {
     if (!req.file) {
         return res.status(400).json({ error: "No image file uploaded." });
     }
 
-    console.log(`📸 Image received: ${req.file.originalname}. Sending Base64 to Google Vision...`);
-
-    // 🛑 THE FIX: Convert buffer to Base64 string so Google knows exactly what it is
-    const base64Image = req.file.buffer.toString('base64');
+    console.log(`📸 Image received. Sending Base64 to Google Vision...`);
     
     const request = {
-        image: { content: base64Image }
+        image: { content: req.file.buffer.toString('base64') }
     };
     
     const [result] = await client.textDetection(request);
-    console.log("Full Google Response received!");
-    //console.log("Full Result Object:", JSON.stringify(result, null, 2));
-    // Safety guard: Check for API errors
+    
     if (result.error) {
-        console.error("🛑 GOOGLE VISION API ERROR:", result.error.message);
         return res.status(500).json({ error: result.error.message });
     }
 
-    // 🛑 THE FIX: Access the full text annotation directly
     const fullText = result.fullTextAnnotation;
-    
-    // Safety guard
     if (!fullText || !fullText.text) {
-        console.log("⚠️ No text found in this image.");
         return res.json({ allIngredients: [], flaggedIngredients: [] });
     }
 
     const rawOcrText = fullText.text;
     const lowerCasedText = rawOcrText.toLowerCase();
-
-    console.log("✅ OCR Complete! Text found:", rawOcrText);
-    console.log("Scanning text against Firestore database...");
-
-    // B. Fetch all harmful ingredients from your Firestore collection
-    const snapshot = await db.collection('harmful_ingredients').get();
     const detectedIngredients = [];
 
-    // C. Compare extracted text against ingredient names and their aliases
-    snapshot.forEach(doc => {
-      const ingredient = doc.data();
-      
-      // Safety guard: Skip broken rows
+    // 🔍 SCANNING AGAINST FAST MEMORY CACHE (No database calls here!)
+    cachedIngredients.forEach(ingredient => {
       if (!ingredient || !ingredient.name) return; 
 
       const matchName = ingredient.name.toLowerCase();
       const ingredientAliases = Array.isArray(ingredient.aliases) ? ingredient.aliases : [];
       
-      const isMatched = lowerCasedText.includes(matchName) || 
-                        ingredientAliases.some(alias => alias && lowerCasedText.includes(alias.toLowerCase()));
+      let isMatched = lowerCasedText.includes(matchName);
+
+      if (!isMatched && ingredientAliases.length > 0) {
+        isMatched = ingredientAliases.some(alias => alias && lowerCasedText.includes(alias.toLowerCase()));
+      }
 
       if (isMatched) {
         detectedIngredients.push({
           name: ingredient.name,
           risk: ingredient.risk_level || "Medium",
+          category: ingredient.category || "Uncategorized",
           description: ingredient.description || "No description available."
         });
       }
     });
 
-    // E. Send results back to React frontend
+    console.log(`🎯 Scan Analysis Complete. Flagged ${detectedIngredients.length} items.`);
+
     res.json({
       allIngredients: rawOcrText.split(/\W+/).filter(word => word.length > 2),
       flaggedIngredients: detectedIngredients
@@ -108,7 +115,7 @@ app.post('/api/scan', upload.single('labelImage'), async (req, res) => {
   }
 });
 
-// 5. Start server
+// 4. Start server
 const PORT = 5000;
 app.listen(PORT, () => {
     console.log(`Backend server running on http://localhost:${PORT}`);
